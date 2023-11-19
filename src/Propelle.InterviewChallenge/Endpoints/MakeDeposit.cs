@@ -42,12 +42,29 @@ namespace Propelle.InterviewChallenge.Endpoints
                 var deposit = new Deposit(req.UserId, req.Amount);
                 _paymentsContext.Deposits.Add(deposit);
 
+                //If an error is thrown here, then it hasn't saved the data and the tests
+                //automatically retry when simulating user behaviour
                 await _paymentsContext.SaveChangesAsync(ct);
 
-                await _eventBus.Publish(new DepositMade
+                bool success = false;
+                var retryCount = 7;
+
+                while (!success)
                 {
-                    Id = deposit.Id
-                });
+                    try
+                    {
+                        /*Wrapping this in a while loop with a limit enables us to retry the Publish event
+                        if an error is thrown.
+
+                        Ultimately, the retry count could be sent in as an arguement if required.
+
+                        Realistically, a retry would need a "fail safe" if the
+                        service was down for a longer period.*/
+                        await _eventBus.Publish(new DepositMade { Id = deposit.Id });
+                        success = true;
+                    }
+                    catch when (retryCount-- > 0) { }
+                }
 
                 await SendAsync(new Response { DepositId = deposit.Id }, 201, ct);
             }
